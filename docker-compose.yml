@@ -1,0 +1,252 @@
+version: '3.9'
+
+services:
+
+  # ─── API Gateway ─────────────────────────────────────────────────────────────
+  api-gateway:
+    build: ./api-gateway
+    ports:
+      - "80:80"
+    depends_on:
+      - user-service
+      - product-service
+      - order-service
+      - payment-service
+      - notification-service
+      - inventory-service
+    networks:
+      - frontend
+      - backend
+    restart: unless-stopped
+
+  # ─── User Service ─────────────────────────────────────────────────────────────
+  user-service:
+    build: ./user-service
+    environment:
+      PORT: 8001
+      DB_HOST: postgres-user
+      DB_PORT: 5432
+      DB_NAME: userdb
+      DB_USER: postgres
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-CHANGE_ME}
+      JWT_SECRET: ${JWT_SECRET:-CHANGE_ME_USE_VAULT}
+      JWT_EXPIRES_IN: 1h
+    depends_on:
+      postgres-user:
+        condition: service_healthy
+    networks:
+      - backend
+    restart: unless-stopped
+
+  # ─── Product Service ──────────────────────────────────────────────────────────
+  product-service:
+    build: ./product-service
+    environment:
+      PORT: 8002
+      DB_HOST: postgres-product
+      DB_PORT: 5432
+      DB_NAME: productdb
+      DB_USER: postgres
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-CHANGE_ME}
+      JWT_SECRET: ${JWT_SECRET:-CHANGE_ME_USE_VAULT}
+    depends_on:
+      postgres-product:
+        condition: service_healthy
+    networks:
+      - backend
+    restart: unless-stopped
+
+  # ─── Order Service ────────────────────────────────────────────────────────────
+  order-service:
+    build: ./order-service
+    environment:
+      PORT: 8003
+      DB_HOST: postgres-order
+      DB_PORT: 5432
+      DB_NAME: orderdb
+      DB_USER: postgres
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-CHANGE_ME}
+      JWT_SECRET: ${JWT_SECRET:-CHANGE_ME_USE_VAULT}
+      RABBITMQ_URL: amqp://guest:${RABBITMQ_PASSWORD:-guest}@rabbitmq:5672
+    depends_on:
+      postgres-order:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - backend
+    restart: unless-stopped
+
+  # ─── Payment Service ──────────────────────────────────────────────────────────
+  payment-service:
+    build: ./payment-service
+    environment:
+      PORT: 8004
+      DB_HOST: postgres-payment
+      DB_PORT: 5432
+      DB_NAME: paymentdb
+      DB_USER: postgres
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-CHANGE_ME}
+      JWT_SECRET: ${JWT_SECRET:-CHANGE_ME_USE_VAULT}
+    depends_on:
+      postgres-payment:
+        condition: service_healthy
+    networks:
+      - backend
+    restart: unless-stopped
+
+  # ─── Notification Service ─────────────────────────────────────────────────────
+  notification-service:
+    build: ./notification-service
+    environment:
+      PORT: 8005
+      RABBITMQ_URL: amqp://guest:${RABBITMQ_PASSWORD:-guest}@rabbitmq:5672
+      SMTP_HOST: ${SMTP_HOST:-smtp.ethereal.email}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-noreply@secureshop.local}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - backend
+    restart: unless-stopped
+
+  # ─── Inventory Service ────────────────────────────────────────────────────────
+  inventory-service:
+    build: ./inventory-service
+    environment:
+      PORT: 8006
+      DB_HOST: postgres-inventory
+      DB_PORT: 5432
+      DB_NAME: inventorydb
+      DB_USER: postgres
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-CHANGE_ME}
+      JWT_SECRET: ${JWT_SECRET:-CHANGE_ME_USE_VAULT}
+    depends_on:
+      postgres-inventory:
+        condition: service_healthy
+    networks:
+      - backend
+    restart: unless-stopped
+
+  # ─── Databases (one per service for isolation) ────────────────────────────────
+  postgres-user:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: userdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-CHANGE_ME}
+    volumes:
+      - pgdata-user:/var/lib/postgresql/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d userdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  postgres-product:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: productdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-CHANGE_ME}
+    volumes:
+      - pgdata-product:/var/lib/postgresql/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d productdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  postgres-order:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: orderdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-CHANGE_ME}
+    volumes:
+      - pgdata-order:/var/lib/postgresql/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d orderdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  postgres-payment:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: paymentdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-CHANGE_ME}
+    volumes:
+      - pgdata-payment:/var/lib/postgresql/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d paymentdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  postgres-inventory:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: inventorydb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-CHANGE_ME}
+    volumes:
+      - pgdata-inventory:/var/lib/postgresql/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d inventorydb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ─── RabbitMQ ─────────────────────────────────────────────────────────────────
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+    ports:
+      - "15672:15672"   # Management UI (dev only)
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+networks:
+  frontend:
+    driver: bridge
+  backend:
+    driver: bridge
+    internal: true
+
+volumes:
+  pgdata-user:
+  pgdata-product:
+  pgdata-order:
+  pgdata-payment:
+  pgdata-inventory:
+  rabbitmq-data:

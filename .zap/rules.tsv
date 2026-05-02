@@ -1,0 +1,14 @@
+# ZAP Baseline scan rules
+# Format: rule_id  IGNORE/WARN/FAIL  description
+# IGNORE = suppress finding, WARN = report but don't fail, FAIL = fail the build
+
+# Suppress informational findings that are expected in a dev environment
+10015	IGNORE	Incomplete or No Cache-control Header Set
+10096	IGNORE	Timestamp Disclosure
+
+# Alert on high-severity findings
+40012	WARN	Cross Site Scripting Reflected
+40014	WARN	Cross Site Scripting Persistent
+40018	WARN	SQL Injection
+90019	WARN	Server Side Code Injection
+90020	WARN	Remote OS Command Injection
