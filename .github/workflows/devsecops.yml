@@ -152,6 +152,9 @@ jobs:
     name: Build Docker Images
     runs-on: ubuntu-latest
     needs: [sast, sca, iac-scan]
+    permissions:
+      packages: write
+      contents: read
     outputs:
       image-tag: ${{ steps.meta.outputs.version }}
     strategy:
@@ -207,6 +210,7 @@ jobs:
     permissions:
       security-events: write
       contents: read
+      packages: read
     strategy:
       matrix:
         service:
@@ -240,6 +244,9 @@ jobs:
     name: SBOM Generation (Syft)
     runs-on: ubuntu-latest
     needs: build
+    permissions:
+      packages: read
+      contents: read
     strategy:
       matrix:
         service:
