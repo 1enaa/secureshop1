@@ -6,14 +6,15 @@ on:
   pull_request:
     branches: [main]
 
+# 🔥 IMPORTANT: global permissions (fixes SARIF upload issues)
+permissions:
+  contents: read
+  security-events: write
+
 jobs:
   trivy:
     name: Trivy Scan (Containers + FS)
     runs-on: ubuntu-latest
-
-    permissions:
-      security-events: write
-      contents: read
 
     steps:
       - name: Checkout code
@@ -38,7 +39,7 @@ jobs:
           category: trivy-fs
 
       # ─────────────────────────────
-      # Docker image scan (optional)
+      # Docker image scan
       # ─────────────────────────────
       - name: Build image
         run: docker build -t secureshop:test .
