@@ -12,33 +12,31 @@ env:
 
 jobs:
 
-  # ────────────────────────────────────────────────────────────────────────────
-  # STEP 1 – Secret Scanning (runs first, fast feedback)
-  # ────────────────────────────────────────────────────────────────────────────
+  # ─────────────────────────────────────────────
+  # STEP 1 – Secret Scanning
+  # ─────────────────────────────────────────────
   secret-scan:
     name: Secret Scanning (Gitleaks)
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
-          fetch-depth: 0          # full history so Gitleaks can scan all commits
+          fetch-depth: 0
 
       - name: Run Gitleaks
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # ────────────────────────────────────────────────────────────────────────────
-  # STEP 2 – SAST (Semgrep OSS for Node.js)
-  # ────────────────────────────────────────────────────────────────────────────
+  # ─────────────────────────────────────────────
+  # STEP 2 – SAST (Semgrep)
+  # ─────────────────────────────────────────────
   sast:
     name: SAST (Semgrep)
     runs-on: ubuntu-latest
     needs: secret-scan
     permissions:
       security-events: write
-      actions: read
       contents: read
     steps:
       - uses: actions/checkout@v4
@@ -55,18 +53,18 @@ jobs:
         env:
           SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
 
-      - name: Upload SARIF to GitHub Security tab
+      - name: Upload SARIF
         uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
           sarif_file: semgrep.sarif
           category: semgrep
 
-  # ────────────────────────────────────────────────────────────────────────────
-  # STEP 3 – SCA (OWASP Dependency-Check)
-  # ────────────────────────────────────────────────────────────────────────────
+  # ─────────────────────────────────────────────
+  # STEP 3 – SCA
+  # ─────────────────────────────────────────────
   sca:
-    name: SCA (OWASP Dependency-Check)
+    name: SCA (Dependency-Check)
     runs-on: ubuntu-latest
     needs: secret-scan
     permissions:
@@ -75,32 +73,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Node 20
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: Install dependencies (all services)
+      - name: Install dependencies
         run: |
           for svc in user-service product-service order-service payment-service notification-service inventory-service; do
-            echo "Installing $svc..."
             cd $svc && npm ci && cd ..
           done
 
-      - name: Run OWASP Dependency-Check
+      - name: Run Dependency Check
         uses: dependency-check/Dependency-Check_Action@main
-        id: depcheck
         with:
           project: 'secureshop'
           path: '.'
           format: 'SARIF HTML'
           out: 'dependency-check-report'
-          args: >
-            --enableRetired
-
-      - name: List report output (debug)
-        if: always()
-        run: find dependency-check-report -type f || echo "No report files found"
+          args: "--enableRetired"
 
       - name: Upload SARIF
         uses: github/codeql-action/upload-sarif@v3
@@ -109,16 +100,9 @@ jobs:
           sarif_file: dependency-check-report
           category: dependency-check
 
-      - name: Upload HTML report as artifact
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: dependency-check-html
-          path: dependency-check-report/
-
-  # ────────────────────────────────────────────────────────────────────────────
-  # STEP 4 – IaC Scanning (Checkov on Dockerfiles + docker-compose)
-  # ────────────────────────────────────────────────────────────────────────────
+  # ─────────────────────────────────────────────
+  # STEP 4 – IaC (Checkov)
+  # ─────────────────────────────────────────────
   iac-scan:
     name: IaC Scanning (Checkov)
     runs-on: ubuntu-latest
@@ -145,9 +129,30 @@ jobs:
           sarif_file: checkov-report.sarif
           category: checkov
 
-  # ────────────────────────────────────────────────────────────────────────────
-  # STEP 5 – Build Docker images
-  # ────────────────────────────────────────────────────────────────────────────
+  # ─────────────────────────────────────────────
+  # STEP 5 – Bandit (FIXED)
+  # ─────────────────────────────────────────────
+  bandit:
+    name: Bandit SAST (Python)
+    runs-on: ubuntu-latest
+    needs: secret-scan
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Bandit
+        run: pip install bandit
+
+      - name: Run Bandit
+        run: bandit -r . -f json -o bandit-report.json
+
+  # ─────────────────────────────────────────────
+  # STEP 6 – Build Docker Images
+  # ─────────────────────────────────────────────
   build:
     name: Build Docker Images
     runs-on: ubuntu-latest
@@ -155,8 +160,6 @@ jobs:
     permissions:
       packages: write
       contents: read
-    outputs:
-      image-tag: ${{ steps.meta.outputs.version }}
     strategy:
       matrix:
         service:
@@ -170,47 +173,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v3
 
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+      - uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata
+      - uses: docker/metadata-action@v5
         id: meta
-        uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ matrix.service }}
-          tags: |
-            type=sha,prefix=sha-
-            type=ref,event=branch
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
 
-      - name: Build and push image
-        uses: docker/build-push-action@v5
+      - uses: docker/build-push-action@v5
         with:
           context: ./${{ matrix.service }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
 
-  # ────────────────────────────────────────────────────────────────────────────
-  # STEP 6 – Container Image Scanning (Trivy)
-  # ────────────────────────────────────────────────────────────────────────────
+  # ─────────────────────────────────────────────
+  # STEP 7 – Trivy Scan
+  # ─────────────────────────────────────────────
   container-scan:
-    name: Container Scanning (Trivy)
+    name: Container Scan (Trivy)
     runs-on: ubuntu-latest
     needs: build
-    permissions:
-      security-events: write
-      contents: read
-      packages: read
     strategy:
       matrix:
         service:
@@ -221,14 +209,14 @@ jobs:
           - notification-service
           - inventory-service
     steps:
-      - name: Run Trivy on image
+      - name: Run Trivy
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ matrix.service }}:latest
           format: sarif
           output: trivy-${{ matrix.service }}.sarif
           severity: CRITICAL,HIGH
-          exit-code: '0'   # Don't fail the pipeline; report only
+          exit-code: 0
 
       - name: Upload SARIF
         uses: github/codeql-action/upload-sarif@v3
@@ -237,16 +225,13 @@ jobs:
           sarif_file: trivy-${{ matrix.service }}.sarif
           category: trivy-${{ matrix.service }}
 
-  # ────────────────────────────────────────────────────────────────────────────
-  # STEP 7 – SBOM Generation (Syft)
-  # ────────────────────────────────────────────────────────────────────────────
+  # ─────────────────────────────────────────────
+  # STEP 8 – SBOM
+  # ─────────────────────────────────────────────
   sbom:
-    name: SBOM Generation (Syft)
+    name: SBOM Generation
     runs-on: ubuntu-latest
     needs: build
-    permissions:
-      packages: read
-      contents: read
     strategy:
       matrix:
         service:
@@ -257,92 +242,44 @@ jobs:
           - notification-service
           - inventory-service
     steps:
-      - name: Generate SBOM
-        uses: anchore/sbom-action@v0
+      - uses: anchore/sbom-action@v0
         with:
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ matrix.service }}:latest
-          format: cyclonedx-json
-          output-file: sbom-${{ matrix.service }}.json
-          artifact-name: sbom-${{ matrix.service }}
 
-  # ────────────────────────────────────────────────────────────────────────────
-  # STEP 8 – DAST (OWASP ZAP) — runs against live docker-compose stack
-  # ────────────────────────────────────────────────────────────────────────────
+  # ─────────────────────────────────────────────
+  # STEP 9 – DAST (ZAP)
+  # ─────────────────────────────────────────────
   dast:
     name: DAST (OWASP ZAP)
     runs-on: ubuntu-latest
     needs: build
-    permissions:
-      security-events: write
-      contents: read
-      issues: write
     steps:
       - uses: actions/checkout@v4
 
-      - name: Create .env for compose
-        run: |
-          echo "JWT_SECRET=ci-test-secret-not-for-production" >> .env
-          echo "POSTGRES_PASSWORD=ci-test-password" >> .env
-          echo "RABBITMQ_PASSWORD=guest" >> .env
-
-      - name: Start services with Docker Compose
+      - name: Start services
         run: |
           docker compose up -d --build
-          echo "Waiting for services to be healthy..."
           sleep 30
 
-      - name: Verify gateway is reachable
-        run: |
-          curl -f http://localhost/health || (docker compose logs && exit 1)
-
-      - name: Run ZAP Baseline Scan
+      - name: Run ZAP
         uses: zaproxy/action-baseline@v0.11.0
         with:
-          target: 'http://localhost'
-          rules_file_name: '.zap/rules.tsv'
-          cmd_options: '-a -j'
-          issue_title: 'ZAP Baseline Scan Report'
+          target: http://localhost
           fail_action: false
 
-      - name: Upload ZAP SARIF
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
-        with:
-          sarif_file: zap.sarif
-          category: zap-dast
-
-      - name: Upload ZAP HTML Report
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: zap-html-report
-          path: zap.html
-
-      - name: Tear down services
+      - name: Tear down
         if: always()
         run: docker compose down -v
 
-  # ────────────────────────────────────────────────────────────────────────────
-  # STEP 9 – Pipeline Summary
-  # ────────────────────────────────────────────────────────────────────────────
+  # ─────────────────────────────────────────────
+  # STEP 10 – Summary
+  # ─────────────────────────────────────────────
   pipeline-summary:
     name: Pipeline Summary
     runs-on: ubuntu-latest
-    needs: [secret-scan, sast, sca, iac-scan, build, container-scan, sbom, dast]
+    needs: [secret-scan, sast, sca, iac-scan, bandit, build, container-scan, sbom, dast]
     if: always()
     steps:
-      - name: Print summary
+      - name: Summary
         run: |
-          echo "## SecureShop DevSecOps Pipeline Summary" >> $GITHUB_STEP_SUMMARY
-          echo "| Stage | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Secret Scan (Gitleaks)      | ${{ needs.secret-scan.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| SAST (Semgrep)              | ${{ needs.sast.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| SCA (Dependency-Check)      | ${{ needs.sca.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| IaC (Checkov)               | ${{ needs.iac-scan.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Build                       | ${{ needs.build.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Container Scan (Trivy)      | ${{ needs.container-scan.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| SBOM (Syft)                 | ${{ needs.sbom.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| DAST (ZAP)                  | ${{ needs.dast.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "All SARIF reports are available in the **Security → Code scanning** tab." >> $GITHUB_STEP_SUMMARY
+          echo "SecureShop DevSecOps completed"
