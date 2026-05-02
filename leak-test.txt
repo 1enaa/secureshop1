@@ -1,1 +1,1 @@
-SECRET_KEY=sk_test_123456789
+this is a test file for gitleaks
