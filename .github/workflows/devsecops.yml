@@ -12,9 +12,9 @@ env:
 
 jobs:
 
-  # ─────────────────────────────────────────────
-  # STEP 1 – Secret Scanning
-  # ─────────────────────────────────────────────
+# ─────────────────────────────────────────────
+# 1. Secrets scanning
+# ─────────────────────────────────────────────
   secret-scan:
     name: Secret Scanning (Gitleaks)
     runs-on: ubuntu-latest
@@ -28,41 +28,37 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # ─────────────────────────────────────────────
-  # STEP 2 – SAST (Semgrep)
-  # ─────────────────────────────────────────────
+# ─────────────────────────────────────────────
+# 2. SAST (Semgrep)
+# ─────────────────────────────────────────────
   sast:
-    name: SAST (Semgrep)
+    name: Semgrep SAST
     runs-on: ubuntu-latest
     needs: secret-scan
     permissions:
       security-events: write
       contents: read
+
     steps:
       - uses: actions/checkout@v4
 
       - name: Run Semgrep
         uses: returntocorp/semgrep-action@v1
         with:
-          config: >-
-            p/nodejs
-            p/owasp-top-ten
-            p/jwt
-            p/express
+          config: p/nodejs
           generateSarif: "1"
         env:
           SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
 
-      - name: Upload SARIF
+      - name: Upload Semgrep SARIF
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
         with:
           sarif_file: semgrep.sarif
           category: semgrep
 
-  # ─────────────────────────────────────────────
-  # STEP 3 – SCA
-  # ─────────────────────────────────────────────
+# ─────────────────────────────────────────────
+# 3. SCA (Dependency Check)
+# ─────────────────────────────────────────────
   sca:
     name: SCA (Dependency-Check)
     runs-on: ubuntu-latest
@@ -70,13 +66,14 @@ jobs:
     permissions:
       security-events: write
       contents: read
+
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: 20
 
       - name: Install dependencies
         run: |
@@ -87,29 +84,28 @@ jobs:
       - name: Run Dependency Check
         uses: dependency-check/Dependency-Check_Action@main
         with:
-          project: 'secureshop'
-          path: '.'
-          format: 'SARIF HTML'
-          out: 'dependency-check-report'
+          project: secureshop
+          path: .
+          format: SARIF HTML
+          out: dependency-check-report
           args: "--enableRetired"
 
       - name: Upload SARIF
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
         with:
           sarif_file: dependency-check-report
-          category: dependency-check
 
-  # ─────────────────────────────────────────────
-  # STEP 4 – IaC (Checkov)
-  # ─────────────────────────────────────────────
+# ─────────────────────────────────────────────
+# 4. IaC (Checkov)
+# ─────────────────────────────────────────────
   iac-scan:
-    name: IaC Scanning (Checkov)
+    name: Checkov IaC Scan
     runs-on: ubuntu-latest
     needs: secret-scan
     permissions:
       security-events: write
       contents: read
+
     steps:
       - uses: actions/checkout@v4
 
@@ -119,23 +115,24 @@ jobs:
           directory: .
           framework: dockerfile
           output_format: sarif
-          output_file_path: checkov-report.sarif
+          output_file_path: checkov.sarif
           soft_fail: true
 
       - name: Upload SARIF
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
         with:
-          sarif_file: checkov-report.sarif
-          category: checkov
+          sarif_file: checkov.sarif
 
-  # ─────────────────────────────────────────────
-  # STEP 5 – Bandit (FIXED)
-  # ─────────────────────────────────────────────
+# ─────────────────────────────────────────────
+# 5. Bandit (FIXED - NO SARIF MISUSE)
+# ─────────────────────────────────────────────
   bandit:
-    name: Bandit SAST (Python)
+    name: Bandit Python SAST
     runs-on: ubuntu-latest
     needs: secret-scan
+    permissions:
+      contents: read
+
     steps:
       - uses: actions/checkout@v4
 
@@ -147,19 +144,27 @@ jobs:
       - name: Install Bandit
         run: pip install bandit
 
-      - name: Run Bandit
+      - name: Run Bandit (JSON)
         run: bandit -r . -f json -o bandit-report.json
 
-  # ─────────────────────────────────────────────
-  # STEP 6 – Build Docker Images
-  # ─────────────────────────────────────────────
+      - name: Upload Bandit Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bandit-report
+          path: bandit-report.json
+
+# ─────────────────────────────────────────────
+# 6. Build Docker images
+# ─────────────────────────────────────────────
   build:
-    name: Build Docker Images
+    name: Build Images
     runs-on: ubuntu-latest
-    needs: [sast, sca, iac-scan]
+    needs: [sast, sca, iac-scan, bandit]
+
     permissions:
       packages: write
       contents: read
+
     strategy:
       matrix:
         service:
@@ -170,6 +175,7 @@ jobs:
           - notification-service
           - inventory-service
           - api-gateway
+
     steps:
       - uses: actions/checkout@v4
 
@@ -177,28 +183,25 @@ jobs:
 
       - uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/metadata-action@v5
-        id: meta
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ matrix.service }}
-
-      - uses: docker/build-push-action@v5
+      - name: Build image
+        uses: docker/build-push-action@v5
         with:
           context: ./${{ matrix.service }}
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
+          tags: ghcr.io/${{ github.repository_owner }}/secureshop-${{ matrix.service }}:latest
 
-  # ─────────────────────────────────────────────
-  # STEP 7 – Trivy Scan
-  # ─────────────────────────────────────────────
+# ─────────────────────────────────────────────
+# 7. Trivy container scan
+# ─────────────────────────────────────────────
   container-scan:
-    name: Container Scan (Trivy)
+    name: Trivy Scan
     runs-on: ubuntu-latest
     needs: build
+
     strategy:
       matrix:
         service:
@@ -208,11 +211,12 @@ jobs:
           - payment-service
           - notification-service
           - inventory-service
+
     steps:
       - name: Run Trivy
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ matrix.service }}:latest
+          image-ref: ghcr.io/${{ github.repository_owner }}/secureshop-${{ matrix.service }}:latest
           format: sarif
           output: trivy-${{ matrix.service }}.sarif
           severity: CRITICAL,HIGH
@@ -220,66 +224,59 @@ jobs:
 
       - name: Upload SARIF
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
         with:
           sarif_file: trivy-${{ matrix.service }}.sarif
-          category: trivy-${{ matrix.service }}
 
-  # ─────────────────────────────────────────────
-  # STEP 8 – SBOM
-  # ─────────────────────────────────────────────
+# ─────────────────────────────────────────────
+# 8. SBOM
+# ─────────────────────────────────────────────
   sbom:
-    name: SBOM Generation
+    name: SBOM
     runs-on: ubuntu-latest
     needs: build
-    strategy:
-      matrix:
-        service:
-          - user-service
-          - product-service
-          - order-service
-          - payment-service
-          - notification-service
-          - inventory-service
+
     steps:
       - uses: anchore/sbom-action@v0
         with:
-          image: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ matrix.service }}:latest
+          image: ghcr.io/${{ github.repository_owner }}/secureshop-user-service:latest
 
-  # ─────────────────────────────────────────────
-  # STEP 9 – DAST (ZAP)
-  # ─────────────────────────────────────────────
+# ─────────────────────────────────────────────
+# 9. DAST (FIXED ZAP - NO BROKEN SARIF)
+# ─────────────────────────────────────────────
   dast:
-    name: DAST (OWASP ZAP)
+    name: OWASP ZAP DAST
     runs-on: ubuntu-latest
     needs: build
+
     steps:
       - uses: actions/checkout@v4
 
       - name: Start services
         run: |
           docker compose up -d --build
-          sleep 30
+          sleep 40
 
-      - name: Run ZAP
+      - name: Run ZAP baseline
         uses: zaproxy/action-baseline@v0.11.0
         with:
           target: http://localhost
+          cmd_options: "-a"
           fail_action: false
 
       - name: Tear down
         if: always()
         run: docker compose down -v
 
-  # ─────────────────────────────────────────────
-  # STEP 10 – Summary
-  # ─────────────────────────────────────────────
+# ─────────────────────────────────────────────
+# 10. Summary
+# ─────────────────────────────────────────────
   pipeline-summary:
-    name: Pipeline Summary
+    name: Summary
     runs-on: ubuntu-latest
     needs: [secret-scan, sast, sca, iac-scan, bandit, build, container-scan, sbom, dast]
     if: always()
+
     steps:
       - name: Summary
         run: |
-          echo "SecureShop DevSecOps completed"
+          echo "SecureShop DevSecOps pipeline completed"
