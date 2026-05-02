@@ -6,17 +6,19 @@ on:
   pull_request:
     branches: [main]
 
-# 🔥 IMPORTANT: global permissions (fixes SARIF upload issues)
 permissions:
   contents: read
   security-events: write
 
 jobs:
   trivy:
-    name: Trivy Scan (Containers + FS)
+    name: Trivy Scan (FS + Container)
     runs-on: ubuntu-latest
 
     steps:
+      # ─────────────────────────────
+      # Checkout code
+      # ─────────────────────────────
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -31,6 +33,7 @@ jobs:
           format: sarif
           output: trivy-fs.sarif
           severity: CRITICAL,HIGH
+          exit-code: 0
 
       - name: Upload FS SARIF
         uses: github/codeql-action/upload-sarif@v3
@@ -47,10 +50,12 @@ jobs:
       - name: Run Trivy image scan
         uses: aquasecurity/trivy-action@master
         with:
+          scan-type: image
           image-ref: secureshop:test
           format: sarif
           output: trivy-image.sarif
           severity: CRITICAL,HIGH
+          exit-code: 0
 
       - name: Upload Image SARIF
         uses: github/codeql-action/upload-sarif@v3
