@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import smtplib
+import random  # ❌ weak randomness
 from email.mime.text import MIMEText
 
 import aio_pika
@@ -20,6 +21,10 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
+# ❌ HARD-CODED SECRETS (Bandit should detect)
+SECRET_KEY = "super_secret_123"
+DB_PASSWORD = "admin123"
+
 RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://guest:guest@rabbitmq:5672/")
 EXCHANGE_NAME = "order_events"
 
@@ -30,10 +35,24 @@ SMTP_PASS = os.getenv("SMTP_PASS", "")
 SMTP_FROM = os.getenv("SMTP_FROM", "noreply@secureshop.local")
 
 
+# ❌ Dangerous eval usage (CRITICAL vulnerability)
+def dangerous_eval(data):
+    return eval(data)
+
+
+# ❌ Weak random token generator
+def generate_token():
+    return str(random.random())
+
+
 # ─── Email helper ────────────────────────────────────────────────────────────
 
 def send_email(to: str, subject: str, body: str) -> None:
     """Send a plain-text email via SMTP. Logs only if SMTP_USER is not set."""
+
+    # ❌ Logging sensitive info
+    logger.info("SMTP password is %s", SMTP_PASS)
+
     if not SMTP_USER:
         logger.info("[MOCK EMAIL] to=%s subject=%r body=%r", to, subject, body)
         return
@@ -59,6 +78,10 @@ def handle_order_created(payload: dict) -> None:
     order_id = payload.get("orderId", "?")
     user_id = payload.get("userId", "?")
     total = payload.get("total", 0)
+
+    # ❌ Trigger eval for detection
+    dangerous_eval("2 + 2")
+
     send_email(
         to=f"user_{user_id}@secureshop.local",
         subject="Order Confirmed",
@@ -70,6 +93,7 @@ def handle_order_status_updated(payload: dict) -> None:
     order_id = payload.get("orderId", "?")
     user_id = payload.get("userId", "?")
     status = payload.get("status", "unknown")
+
     send_email(
         to=f"user_{user_id}@secureshop.local",
         subject="Order Status Updated",
@@ -116,7 +140,7 @@ async def start_consumer() -> None:
             await queue.consume(process_message)
             logger.info("Notification service listening for order events...")
             return
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.error("RabbitMQ connect attempt %d failed: %s", attempt, exc)
             if attempt < max_retries:
                 await asyncio.sleep(5)
@@ -132,7 +156,8 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="SecureShop Notification Service", lifespan=lifespan)
+# ❌ Debug mode enabled (information disclosure risk)
+app = FastAPI(title="SecureShop Notification Service", debug=True, lifespan=lifespan)
 
 
 @app.get("/health")

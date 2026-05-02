@@ -1,0 +1,50 @@
+
+Report Summary
+
+┌───────────────────┬──────┬─────────────────┬─────────┐
+│      Target       │ Type │ Vulnerabilities │ Secrets │
+├───────────────────┼──────┼─────────────────┼─────────┤
+│ package-lock.json │ npm  │        4        │    -    │
+├───────────────────┼──────┼─────────────────┼─────────┤
+│ requirements.txt  │ pip  │        1        │    -    │
+└───────────────────┴──────┴─────────────────┴─────────┘
+Legend:
+- '-': Not scanned
+- '0': Clean (no security findings detected)
+
+
+package-lock.json (npm)
+=======================
+Total: 4 (UNKNOWN: 0, LOW: 1, MEDIUM: 2, HIGH: 1, CRITICAL: 0)
+
+┌────────────┬─────────────────────┬──────────┬────────┬───────────────────┬───────────────┬─────────────────────────────────────────────────────────────┐
+│  Library   │    Vulnerability    │ Severity │ Status │ Installed Version │ Fixed Version │                            Title                            │
+├────────────┼─────────────────────┼──────────┼────────┼───────────────────┼───────────────┼─────────────────────────────────────────────────────────────┤
+│ nodemailer │ CVE-2025-14874      │ HIGH     │ fixed  │ 6.10.1            │ 7.0.11        │ nodemailer: Nodemailer: Denial of service via crafted email │
+│            │                     │          │        │                   │               │ address header                                              │
+│            │                     │          │        │                   │               │ https://avd.aquasec.com/nvd/cve-2025-14874                  │
+│            ├─────────────────────┼──────────┤        │                   ├───────────────┼─────────────────────────────────────────────────────────────┤
+│            │ CVE-2025-13033      │ MEDIUM   │        │                   │ 7.0.7         │ nodemailer: Nodemailer: Email to an unintended domain can   │
+│            │                     │          │        │                   │               │ occur due to Interpretation...                              │
+│            │                     │          │        │                   │               │ https://avd.aquasec.com/nvd/cve-2025-13033                  │
+│            ├─────────────────────┤          │        │                   ├───────────────┼─────────────────────────────────────────────────────────────┤
+│            │ GHSA-vvjj-xcjg-gr5g │          │        │                   │ 8.0.5         │ Nodemailer Vulnerable to SMTP Command Injection via CRLF in │
+│            │                     │          │        │                   │               │ Transport name Option...                                    │
+│            │                     │          │        │                   │               │ https://github.com/advisories/GHSA-vvjj-xcjg-gr5g           │
+│            ├─────────────────────┼──────────┤        │                   ├───────────────┼─────────────────────────────────────────────────────────────┤
+│            │ GHSA-c7w3-x93f-qmm8 │ LOW      │        │                   │ 8.0.4         │ Nodemailer has SMTP command injection due to unsanitized    │
+│            │                     │          │        │                   │               │ `envelope.size` parameter                                   │
+│            │                     │          │        │                   │               │ https://github.com/advisories/GHSA-c7w3-x93f-qmm8           │
+└────────────┴─────────────────────┴──────────┴────────┴───────────────────┴───────────────┴─────────────────────────────────────────────────────────────┘
+
+requirements.txt (pip)
+======================
+Total: 1 (UNKNOWN: 0, LOW: 0, MEDIUM: 1, HIGH: 0, CRITICAL: 0)
+
+┌───────────────┬────────────────┬──────────┬────────┬───────────────────┬───────────────┬────────────────────────────────────────────────────────────┐
+│    Library    │ Vulnerability  │ Severity │ Status │ Installed Version │ Fixed Version │                           Title                            │
+├───────────────┼────────────────┼──────────┼────────┼───────────────────┼───────────────┼────────────────────────────────────────────────────────────┤
+│ python-dotenv │ CVE-2026-28684 │ MEDIUM   │ fixed  │ 1.0.1             │ 1.2.2         │ python-dotenv: python-dotenv: Arbitrary file overwrite via │
+│               │                │          │        │                   │               │ symbolic link following                                    │
+│               │                │          │        │                   │               │ https://avd.aquasec.com/nvd/cve-2026-28684                 │
+└───────────────┴────────────────┴──────────┴────────┴───────────────────┴───────────────┴────────────────────────────────────────────────────────────┘
