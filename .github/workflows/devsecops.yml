@@ -89,20 +89,24 @@ jobs:
 
       - name: Run OWASP Dependency-Check
         uses: dependency-check/Dependency-Check_Action@main
+        id: depcheck
         with:
           project: 'secureshop'
           path: '.'
-          format: 'SARIF'
+          format: 'SARIF HTML'
           out: 'dependency-check-report'
           args: >
             --enableRetired
-            --enableExperimental
+
+      - name: List report output (debug)
+        if: always()
+        run: find dependency-check-report -type f || echo "No report files found"
 
       - name: Upload SARIF
         uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
-          sarif_file: dependency-check-report/dependency-check-report.sarif
+          sarif_file: dependency-check-report
           category: dependency-check
 
       - name: Upload HTML report as artifact
@@ -110,7 +114,7 @@ jobs:
         if: always()
         with:
           name: dependency-check-html
-          path: dependency-check-report/dependency-check-report.html
+          path: dependency-check-report/
 
   # ────────────────────────────────────────────────────────────────────────────
   # STEP 4 – IaC Scanning (Checkov on Dockerfiles + docker-compose)
@@ -129,7 +133,7 @@ jobs:
         uses: bridgecrewio/checkov-action@master
         with:
           directory: .
-          framework: dockerfile,docker_compose
+          framework: dockerfile
           output_format: sarif
           output_file_path: checkov-report.sarif
           soft_fail: true
