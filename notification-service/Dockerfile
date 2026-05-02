@@ -1,18 +1,21 @@
-FROM node:20-alpine
+FROM python:3.12-slim
 
 WORKDIR /app
 
-COPY package*.json ./
-RUN npm ci --only=production
+# Install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
+# Copy source
 COPY src/ ./src/
 
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+# Non-root user
+RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
 USER appuser
 
 EXPOSE 8005
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget -qO- http://localhost:8005/health || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8005/health')" || exit 1
 
-CMD ["node", "src/index.js"]
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8005"]
