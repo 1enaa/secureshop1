@@ -11,16 +11,15 @@ permissions:
 
 jobs:
   trufflehog:
-    name: Scan Git History for Secrets
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository (full history)
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Run TruffleHog
-        uses: trufflesecurity/trufflehog@v3
+        uses: trufflesecurity/trufflehog@v3.18.0
         with:
           scanArguments: --only-verified
