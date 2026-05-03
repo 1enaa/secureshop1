@@ -24,15 +24,21 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Run Semgrep
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install tools
         run: |
-          pip install semgrep
-          semgrep scan --config auto --json > semgrep-report.json
+          pip install semgrep bandit
+
+      - name: Run Semgrep
+        run: semgrep scan --config auto --sarif > semgrep.sarif
 
       - name: Run Bandit (Python SAST)
-        run: |
-          pip install bandit
-          bandit -r . -f json -o bandit-report.json
+        run: bandit -r . -f json -o bandit.json
+
 
 # =========================
 # 2. SCA (Dependency Scan)
@@ -48,8 +54,9 @@ jobs:
         uses: aquasecurity/trivy-action@0.24.0
         with:
           scan-type: fs
-          format: json
-          output: trivy-fs.json
+          format: sarif
+          output: trivy-fs.sarif
+
 
 # =========================
 # 3. Secrets Detection
@@ -64,8 +71,9 @@ jobs:
       - name: Run Gitleaks
         uses: gitleaks/gitleaks-action@v2
         env:
-          GITLEAKS_FORMAT: json
-          GITLEAKS_REPORT_PATH: gitleaks-report.json
+          GITLEAKS_FORMAT: sarif
+          GITLEAKS_REPORT_PATH: gitleaks.sarif
+
 
 # =========================
 # 4. IaC Security (Checkov)
@@ -77,10 +85,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install Checkov
+        run: pip install checkov
+
       - name: Run Checkov
-        run: |
-          pip install checkov
-          checkov -d . -o json > checkov-report.json
+        run: checkov -d . -o sarif > checkov.sarif
+
 
 # =========================
 # 5. Build Docker Image
@@ -95,6 +110,7 @@ jobs:
 
       - name: Build image
         run: docker build -t secureshop:latest .
+
 
 # =========================
 # 6. Container Scan (Trivy)
@@ -114,8 +130,9 @@ jobs:
         uses: aquasecurity/trivy-action@0.24.0
         with:
           image-ref: secureshop:latest
-          format: json
-          output: trivy-image.json
+          format: sarif
+          output: trivy-image.sarif
+
 
 # =========================
 # 7. SBOM Generation (Syft)
@@ -132,6 +149,7 @@ jobs:
         run: |
           docker run --rm -v $PWD:/workspace anchore/syft dir:/workspace -o cyclonedx-json > sbom.json
 
+
 # =========================
 # 8. DAST (OWASP ZAP)
 # =========================
@@ -143,7 +161,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Start app (docker-compose)
+      - name: Start app
         run: docker compose up -d
 
       - name: Run ZAP Baseline Scan
@@ -152,8 +170,9 @@ jobs:
           -t http://host.docker.internal:8000 \
           -r zap-report.html || true
 
+
 # =========================
-# 9. Upload SARIF Reports
+# 9. Upload SARIF Reports (GitHub Security Tab)
 # =========================
   report:
     name: Upload Security Reports
@@ -161,9 +180,27 @@ jobs:
     needs: [sast, sca, secrets, iac]
 
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Upload SARIF to GitHub Security
+      - name: Upload Semgrep SARIF
         uses: github/codeql-action/upload-sarif@v3
         with:
-          sarif_file: results.sarif
+          sarif_file: semgrep.sarif
+
+      - name: Upload Checkov SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: checkov.sarif
+
+      - name: Upload Trivy FS SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-fs.sarif
+
+      - name: Upload Trivy Image SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-image.sarif
+
+      - name: Upload Gitleaks SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: gitleaks.sarif
