@@ -26,7 +26,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   trufflehog-scan:
-    name: Secret Scanning (TruffleHog)  # ✅ indented correctly
+    name: Secret Scanning (TruffleHog)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -104,7 +104,7 @@ jobs:
         uses: bridgecrewio/checkov-action@master
         with:
           directory: .
-          framework: dockerfile,docker-compose
+          framework: all        # ✅ FIXED: replaces invalid dockerfile,docker-compose
           output_format: sarif
           output_file_path: checkov.sarif
           soft_fail: true
