@@ -1,6 +1,7 @@
 name: SecureShop DevSecOps Pipeline
-
+  # adds a "Run workflow" button in the Actions tab
 on:
+  workflow_dispatch
   push:
     branches: [main, develop]
   pull_request:
