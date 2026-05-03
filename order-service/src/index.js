@@ -17,17 +17,23 @@ app.use(morgan('combined'));
 app.use('/api/orders', orderRoutes);
 app.use('/api/cart', cartRoutes);
 
-app.get('/health', (req, res) => res.json({ status: 'ok', service: 'order-service' }));
+app.get('/health', (req, res) =>
+  res.json({ status: 'ok', service: 'order-service' })
+);
 
+// ❌ FIX: safe error handling
 app.use((err, req, res, next) => {
-  console.error(err.stack);
+  console.error("Error logged internally");
   res.status(500).json({ error: 'Internal server error' });
 });
 
-initDb().then(() => {
-  connectRabbitMQ();
-  app.listen(PORT, () => console.log(`Order service running on port ${PORT}`));
-}).catch(err => {
-  console.error('DB init failed:', err);
-  process.exit(1);
-});
+Promise.all([initDb(), connectRabbitMQ()])
+  .then(() => {
+    app.listen(PORT, () =>
+      console.log(`Order service running on port ${PORT}`)
+    );
+  })
+  .catch(err => {
+    console.error('Startup failed');
+    process.exit(1);
+  });

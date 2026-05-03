@@ -1,6 +1,5 @@
 """
 SecureShop Notification Service (Python / FastAPI)
-Consumes order events from RabbitMQ and dispatches email/SMS notifications.
 """
 
 import asyncio
@@ -8,7 +7,7 @@ import json
 import logging
 import os
 import smtplib
-import random  # ❌ weak randomness
+import secrets
 from email.mime.text import MIMEText
 
 import aio_pika
@@ -21,9 +20,9 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-# ❌ HARD-CODED SECRETS (Bandit should detect)
-SECRET_KEY = "super_secret_123"
-DB_PASSWORD = "admin123"
+# ✅ Secrets moved to environment variables
+SECRET_KEY = os.getenv("SECRET_KEY")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
 
 RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://guest:guest@rabbitmq:5672/")
 EXCHANGE_NAME = "order_events"
@@ -35,23 +34,27 @@ SMTP_PASS = os.getenv("SMTP_PASS", "")
 SMTP_FROM = os.getenv("SMTP_FROM", "noreply@secureshop.local")
 
 
-# ❌ Dangerous eval usage (CRITICAL vulnerability)
-def dangerous_eval(data):
-    return eval(data)
+# ❌ FIX: remove eval completely
+def safe_calculation(expression: str):
+    """
+    Replace eval with safe parsing if needed.
+    For demo, we avoid dynamic execution completely.
+    """
+    return None
 
 
-# ❌ Weak random token generator
+# ✅ FIX: cryptographically secure token
 def generate_token():
-    return str(random.random())
+    return secrets.token_hex(32)
 
 
 # ─── Email helper ────────────────────────────────────────────────────────────
 
 def send_email(to: str, subject: str, body: str) -> None:
-    """Send a plain-text email via SMTP. Logs only if SMTP_USER is not set."""
+    """Send email via SMTP."""
 
-    # ❌ Logging sensitive info
-    logger.info("SMTP password is %s", SMTP_PASS)
+    # ❌ FIX: never log secrets
+    logger.info("Sending email to %s", to)
 
     if not SMTP_USER:
         logger.info("[MOCK EMAIL] to=%s subject=%r body=%r", to, subject, body)
@@ -69,7 +72,7 @@ def send_email(to: str, subject: str, body: str) -> None:
             server.sendmail(SMTP_FROM, [to], msg.as_string())
         logger.info("Email sent to %s", to)
     except smtplib.SMTPException as exc:
-        logger.error("Failed to send email to %s: %s", to, exc)
+        logger.error("Failed to send email: %s", exc)
 
 
 # ─── Event handlers ──────────────────────────────────────────────────────────
@@ -79,13 +82,10 @@ def handle_order_created(payload: dict) -> None:
     user_id = payload.get("userId", "?")
     total = payload.get("total", 0)
 
-    # ❌ Trigger eval for detection
-    dangerous_eval("2 + 2")
-
     send_email(
         to=f"user_{user_id}@secureshop.local",
         subject="Order Confirmed",
-        body=f"Your order #{order_id} has been placed successfully. Total: ${total:.2f}",
+        body=f"Order #{order_id} confirmed. Total: ${total:.2f}",
     )
 
 
@@ -97,7 +97,7 @@ def handle_order_status_updated(payload: dict) -> None:
     send_email(
         to=f"user_{user_id}@secureshop.local",
         subject="Order Status Updated",
-        body=f"Your order #{order_id} status has been updated to: {status}",
+        body=f"Order #{order_id} status: {status}",
     )
 
 
@@ -115,20 +115,21 @@ async def process_message(message: aio_pika.abc.AbstractIncomingMessage) -> None
             data = json.loads(message.body.decode())
             event = data.get("event")
             payload = data.get("payload", {})
-            logger.info("Received event: %s", event)
 
             handler = EVENT_HANDLERS.get(event)
             if handler:
                 handler(payload)
             else:
                 logger.warning("No handler for event: %s", event)
-        except (json.JSONDecodeError, KeyError) as exc:
-            logger.error("Failed to process message: %s", exc)
+
+        except json.JSONDecodeError as exc:
+            logger.error("Invalid message format: %s", exc)
 
 
 async def start_consumer() -> None:
     max_retries = 10
-    for attempt in range(1, max_retries + 1):
+
+    for attempt in range(max_retries):
         try:
             connection = await aio_pika.connect_robust(RABBITMQ_URL)
             channel = await connection.channel()
@@ -138,17 +139,18 @@ async def start_consumer() -> None:
             queue = await channel.declare_queue("", exclusive=True)
             await queue.bind(exchange)
             await queue.consume(process_message)
-            logger.info("Notification service listening for order events...")
+
+            logger.info("Notification service started")
             return
+
         except Exception as exc:
-            logger.error("RabbitMQ connect attempt %d failed: %s", attempt, exc)
-            if attempt < max_retries:
-                await asyncio.sleep(5)
+            logger.error("RabbitMQ attempt %d failed: %s", attempt + 1, exc)
+            await asyncio.sleep(5)
 
-    logger.warning("RabbitMQ unavailable — running in HTTP-only mode")
+    logger.warning("RabbitMQ unavailable — fallback mode")
 
 
-# ─── FastAPI app ─────────────────────────────────────────────────────────────
+# ─── FastAPI ────────────────────────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -156,8 +158,12 @@ async def lifespan(app: FastAPI):
     yield
 
 
-# ❌ Debug mode enabled (information disclosure risk)
-app = FastAPI(title="SecureShop Notification Service", debug=True, lifespan=lifespan)
+# ✅ FIX: debug disabled
+app = FastAPI(
+    title="SecureShop Notification Service",
+    debug=False,
+    lifespan=lifespan
+)
 
 
 @app.get("/health")

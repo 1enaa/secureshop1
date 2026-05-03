@@ -12,21 +12,32 @@ const PORT = process.env.PORT || 8006;
 app.use(express.json());
 app.use(morgan('combined'));
 
-// ❌ INSECURE 1: exposed sensitive data
-const ADMIN_PASSWORD = "123456"; // hardcoded secret (for Bandit/Semgrep detection)
+// ✅ FIX 1: no hardcoded secrets
+// ADMIN_PASSWORD moved to .env
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 
-// ❌ INSECURE 2: dangerous function usage
+// Optional safety check
+if (!ADMIN_PASSWORD) {
+  console.warn("WARNING: ADMIN_PASSWORD is not set in environment variables");
+}
+
+// ❌ FIX 2: remove eval completely (replaced with safe logic)
 app.get('/debug', (req, res) => {
+  // Instead of executing code, just return input safely
   const code = req.query.code;
-  eval(code); // VERY dangerous (code injection vulnerability)
-  res.send("Executed");
+
+  res.json({
+    message: "Debug endpoint disabled for security",
+    received: code || null
+  });
 });
 
-// ❌ INSECURE 3: verbose error leakage
+// ❌ FIX 3: no stack trace exposure
 app.use((err, req, res, next) => {
-  console.error(err.stack); // leaks internal structure
+  console.error(err); // log internally only
+
   res.status(500).json({
-    error: err.stack // leaking stack trace to client
+    error: "Internal Server Error"
   });
 });
 
@@ -36,11 +47,13 @@ app.get('/health', (req, res) =>
   res.json({ status: 'ok', service: 'inventory-service' })
 );
 
-initDb().then(() => {
-  app.listen(PORT, () =>
-    console.log(`Inventory service running on port ${PORT}`)
-  );
-}).catch(err => {
-  console.error('DB init failed:', err);
-  process.exit(1);
-});
+initDb()
+  .then(() => {
+    app.listen(PORT, () =>
+      console.log(`Inventory service running on port ${PORT}`)
+    );
+  })
+  .catch(err => {
+    console.error('DB init failed:', err);
+    process.exit(1);
+  });
