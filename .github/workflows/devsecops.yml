@@ -25,10 +25,26 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # ✅ NEW: TruffleHog runs in parallel with Gitleaks
+  trufflehog-scan:
+    name: Secret Scanning (TruffleHog)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run TruffleHog
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --only-verified
+
   sast:
     name: Semgrep SAST
     runs-on: ubuntu-latest
-    needs: secret-scan
+    needs: [secret-scan, trufflehog-scan]  # ✅ waits for both secret scanners
     permissions:
       security-events: write
       contents: read
@@ -50,7 +66,7 @@ jobs:
   sca:
     name: SCA (Dependency-Check)
     runs-on: ubuntu-latest
-    needs: secret-scan
+    needs: [secret-scan, trufflehog-scan]  # ✅ updated
     permissions:
       security-events: write
       contents: read
@@ -81,7 +97,7 @@ jobs:
   iac-scan:
     name: Checkov IaC Scan
     runs-on: ubuntu-latest
-    needs: secret-scan
+    needs: [secret-scan, trufflehog-scan]  # ✅ updated
     permissions:
       security-events: write
       contents: read
@@ -91,7 +107,7 @@ jobs:
         uses: bridgecrewio/checkov-action@master
         with:
           directory: .
-          framework: dockerfile
+          framework: dockerfile,docker-compose  # ✅ FIXED: added docker-compose
           output_format: sarif
           output_file_path: checkov.sarif
           soft_fail: true
@@ -103,7 +119,7 @@ jobs:
   bandit:
     name: Bandit Python SAST
     runs-on: ubuntu-latest
-    needs: secret-scan
+    needs: [secret-scan, trufflehog-scan]  # ✅ updated
     permissions:
       contents: read
     steps:
@@ -154,7 +170,7 @@ jobs:
           push: true
           tags: ghcr.io/${{ github.repository_owner }}/secureshop-${{ matrix.service }}:latest
 
-  container-scan:                          # ✅ correctly indented under jobs
+  container-scan:
     name: Trivy Scan
     runs-on: ubuntu-latest
     needs: build
@@ -171,7 +187,7 @@ jobs:
           - payment-service
           - notification-service
           - inventory-service
-          - api-gateway                    # ✅ added
+          - api-gateway
     steps:
       - name: Run Trivy
         uses: aquasecurity/trivy-action@master
@@ -218,7 +234,7 @@ jobs:
   pipeline-summary:
     name: Summary
     runs-on: ubuntu-latest
-    needs: [secret-scan, sast, sca, iac-scan, bandit, build, container-scan, sbom, dast]
+    needs: [secret-scan, trufflehog-scan, sast, sca, iac-scan, bandit, build, container-scan, sbom, dast]  # ✅ updated
     if: always()
     steps:
       - name: Summary
