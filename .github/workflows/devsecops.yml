@@ -27,19 +27,18 @@ jobs:
 
   # ✅ NEW: TruffleHog runs in parallel with Gitleaks
   trufflehog-scan:
-    name: Secret Scanning (TruffleHog)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Run TruffleHog
-        uses: trufflesecurity/trufflehog@main
-        with:
-          path: ./
-          base: ${{ github.event.repository.default_branch }}
-          head: HEAD
-          extra_args: --only-verified
+  name: Secret Scanning (TruffleHog)
+  runs-on: ubuntu-latest
+  steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Run TruffleHog (filesystem mode)
+      uses: trufflesecurity/trufflehog@main
+      with:
+        path: ./
+        extra_args: --only-verified
 
   sast:
     name: Semgrep SAST
