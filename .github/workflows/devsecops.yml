@@ -24,6 +24,14 @@ jobs:
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_REPORT_FORMAT: json            # ✅ ADDED: emit JSON report
+          GITLEAKS_REPORT_PATH: gitleaks-report.json
+      - name: Upload Gitleaks report                # ✅ ADDED: persist report as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks-report
+          path: gitleaks-report.json
 
   trufflehog-scan:
     name: Secret Scanning (TruffleHog)
@@ -36,7 +44,13 @@ jobs:
         uses: trufflesecurity/trufflehog@main
         with:
           path: ./
-          extra_args: --only-verified
+          extra_args: --only-verified --json > trufflehog-report.json  # ✅ ADDED: JSON output
+      - name: Upload TruffleHog report              # ✅ ADDED: persist report as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trufflehog-report
+          path: trufflehog-report.json
 
   sast:
     name: Semgrep SAST
@@ -59,6 +73,12 @@ jobs:
         with:
           sarif_file: semgrep.sarif
           category: semgrep
+      - name: Upload Semgrep SARIF artifact         # ✅ ADDED: also save SARIF as downloadable artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: semgrep-sarif
+          path: semgrep.sarif
 
   sca:
     name: SCA (Dependency-Check)
@@ -90,6 +110,12 @@ jobs:
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: dependency-check-report
+      - name: Upload Dependency-Check reports       # ✅ ADDED: upload both SARIF and HTML as artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-check-report
+          path: dependency-check-report/
 
   iac-scan:
     name: Checkov IaC Scan
@@ -104,14 +130,20 @@ jobs:
         uses: bridgecrewio/checkov-action@master
         with:
           directory: .
-          framework: all        # ✅ FIXED: replaces invalid dockerfile,docker-compose
-          output_format: sarif
+          framework: all
+          output_format: sarif cli                 # ✅ ADDED: cli format generates a human-readable summary alongside SARIF
           output_file_path: checkov.sarif
           soft_fail: true
       - name: Upload SARIF
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: checkov.sarif
+      - name: Upload Checkov SARIF artifact         # ✅ ADDED: persist SARIF as downloadable artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkov-sarif
+          path: checkov.sarif
 
   bandit:
     name: Bandit Python SAST
@@ -128,12 +160,16 @@ jobs:
       - name: Install Bandit
         run: pip install bandit
       - name: Run Bandit (JSON)
-        run: bandit -r . -f json -o bandit-report.json
+        run: bandit -r . -f json -o bandit-report.json || true
+      - name: Run Bandit (HTML)                     # ✅ ADDED: generate HTML report for human review
+        run: bandit -r . -f html -o bandit-report.html || true
       - name: Upload Bandit Artifact
         uses: actions/upload-artifact@v4
         with:
           name: bandit-report
-          path: bandit-report.json
+          path: |                                   # ✅ ADDED: upload both JSON and HTML
+            bandit-report.json
+            bandit-report.html
 
   build:
     name: Build Images
@@ -194,19 +230,46 @@ jobs:
           output: trivy-${{ matrix.service }}.sarif
           severity: CRITICAL,HIGH
           exit-code: 0
+      - name: Run Trivy (table report)              # ✅ ADDED: human-readable table report per service
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ghcr.io/${{ github.repository_owner }}/secureshop-${{ matrix.service }}:latest
+          format: table
+          output: trivy-${{ matrix.service }}.txt
+          severity: CRITICAL,HIGH
+          exit-code: 0
       - name: Upload SARIF
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-${{ matrix.service }}.sarif
+      - name: Upload Trivy reports                  # ✅ ADDED: persist both SARIF and table as artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-${{ matrix.service }}
+          path: |
+            trivy-${{ matrix.service }}.sarif
+            trivy-${{ matrix.service }}.txt
 
   sbom:
     name: SBOM
     runs-on: ubuntu-latest
     needs: build
+    strategy:                                        # ✅ ADDED: matrix so all 7 services get an SBOM
+      matrix:
+        service:
+          - user-service
+          - product-service
+          - order-service
+          - payment-service
+          - notification-service
+          - inventory-service
+          - api-gateway
     steps:
       - uses: anchore/sbom-action@v0
         with:
-          image: ghcr.io/${{ github.repository_owner }}/secureshop-user-service:latest
+          image: ghcr.io/${{ github.repository_owner }}/secureshop-${{ matrix.service }}:latest
+          artifact-name: sbom-${{ matrix.service }}.spdx.json   # ✅ ADDED: named artifact per service
 
   dast:
     name: OWASP ZAP DAST
@@ -224,6 +287,18 @@ jobs:
           target: http://localhost
           cmd_options: "-a"
           fail_action: false
+          report_html: zap-report.html              # ✅ ADDED: explicit HTML report path
+          report_json: zap-report.json              # ✅ ADDED: explicit JSON report path
+          report_md: zap-report.md                  # ✅ ADDED: explicit Markdown report path
+      - name: Upload ZAP reports                    # ✅ ADDED: upload all ZAP report formats
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-dast-report
+          path: |
+            zap-report.html
+            zap-report.json
+            zap-report.md
       - name: Tear down
         if: always()
         run: docker compose down -v
