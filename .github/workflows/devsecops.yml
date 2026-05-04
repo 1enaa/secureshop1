@@ -223,13 +223,116 @@ jobs:
             bandit-report.html
 
   # ─────────────────────────────────────────────
+  #  DOCKERFILE LINT
+  # ─────────────────────────────────────────────
+
+  hadolint:
+    name: Hadolint (Dockerfile Lint)
+    runs-on: ubuntu-latest
+    needs: [secret-scan, trufflehog-scan]
+    permissions:
+      security-events: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Hadolint (SARIF)
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          recursive: true
+          format: sarif
+          output-file: hadolint-report.sarif
+          no-fail: true
+
+      - name: Run Hadolint (readable summary)
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          recursive: true
+          format: tty
+          no-fail: true
+
+      - name: Upload SARIF to Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: hadolint-report.sarif
+          category: hadolint
+
+      - name: Upload Hadolint artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hadolint-report
+          path: hadolint-report.sarif
+
+  # ─────────────────────────────────────────────
+  #  TERRAFORM / HCL SECURITY (HashiCorp)
+  # ─────────────────────────────────────────────
+
+  terraform-scan:
+    name: HashiCorp Terraform Scan (tfsec + tflint)
+    runs-on: ubuntu-latest
+    needs: [secret-scan, trufflehog-scan]
+    permissions:
+      security-events: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run tfsec (SARIF)
+        uses: aquasecurity/tfsec-sarif-action@v0.1.4
+        with:
+          sarif_file: tfsec-report.sarif
+          soft_fail: true
+
+      - name: Run tfsec (readable summary)
+        uses: aquasecurity/tfsec-action@v1.0.3
+        with:
+          soft_fail: true
+          format: lovely
+
+      - name: Upload tfsec SARIF to Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: tfsec-report.sarif
+          category: tfsec
+
+      - name: Upload tfsec artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfsec-report
+          path: tfsec-report.sarif
+
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: latest
+
+      - name: Init TFLint plugins
+        run: tflint --init
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run TFLint (SARIF + summary)
+        run: |
+          tflint --recursive --format sarif 2>/dev/null | tee tflint-report.sarif || true
+          tflint --recursive --format compact || true
+
+      - name: Upload TFLint artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tflint-report
+          path: tflint-report.sarif
+
+  # ─────────────────────────────────────────────
   #  BUILD
   # ─────────────────────────────────────────────
 
   build:
     name: Build Images
     runs-on: ubuntu-latest
-    needs: [sast, sca, iac-scan, bandit]
+    needs: [sast, sca, iac-scan, bandit, hadolint, terraform-scan]
     permissions:
       packages: write
       contents: read
@@ -386,7 +489,7 @@ jobs:
   pipeline-summary:
     name: Summary
     runs-on: ubuntu-latest
-    needs: [secret-scan, trufflehog-scan, sast, sca, iac-scan, bandit, build, container-scan, sbom, dast]
+    needs: [secret-scan, trufflehog-scan, sast, sca, iac-scan, bandit, hadolint, terraform-scan, build, container-scan, sbom, dast]
     if: always()
     steps:
       - name: Summary
