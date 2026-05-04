@@ -32,12 +32,21 @@ jobs:
           GITLEAKS_REPORT_FORMAT: json
           GITLEAKS_REPORT_PATH: gitleaks-report.json
 
-      - name: Upload Gitleaks report
+      - name: Generate Gitleaks HTML report
+        if: always()
+        run: python3 .github/scripts/gitleaks_html.py
+        env:
+          _GL_IN: gitleaks-report.json
+          _GL_OUT: gitleaks-report.html
+
+      - name: Upload Gitleaks reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: gitleaks-report
-          path: gitleaks-report.json
+          path: |
+            gitleaks-report.json
+            gitleaks-report.html
 
   trufflehog-scan:
     name: Secret Scanning (TruffleHog)
@@ -60,12 +69,20 @@ jobs:
             --json \
             2>/dev/null | tee trufflehog-report.json || true
 
-      - name: Upload TruffleHog report
+      - name: Generate TruffleHog HTML report
+        if: always()
+        run: |
+          cp ${{ github.workspace }}/.github/scripts/trufflehog_html.py . 2>/dev/null || true
+          python3 .github/scripts/trufflehog_html.py 2>/dev/null || python3 trufflehog_html.py || true
+
+      - name: Upload TruffleHog reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: trufflehog-report
-          path: trufflehog-report.json
+          path: |
+            trufflehog-report.json
+            trufflehog-report.html
 
   # ─────────────────────────────────────────────
   #  SAST
@@ -171,20 +188,26 @@ jobs:
             --framework all \
             --output sarif \
             --output cli \
+            --output junitxml \
             --output-file-path checkov.sarif \
             --soft-fail || true
+          # Convert JUnit XML to HTML using junit2html
+          pip install junit2html -q
+          python3 -m junit2html checkov_results_junitxml.xml checkov-report.html || true
 
       - name: Upload SARIF to Security tab
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: checkov.sarif
 
-      - name: Upload Checkov SARIF artifact
+      - name: Upload Checkov reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: checkov-sarif
-          path: checkov.sarif
+          name: checkov-report
+          path: |
+            checkov.sarif
+            checkov-report.html
 
   # ─────────────────────────────────────────────
   #  PYTHON SAST
@@ -257,12 +280,26 @@ jobs:
           sarif_file: hadolint-report.sarif
           category: hadolint
 
-      - name: Upload Hadolint artifact
+      - name: Run Hadolint (JSON for HTML conversion)
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          recursive: true
+          format: json
+          output-file: hadolint-report.json
+          no-fail: true
+
+      - name: Generate Hadolint HTML report
+        if: always()
+        run: python3 .github/scripts/hadolint_html.py
+
+      - name: Upload Hadolint reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: hadolint-report
-          path: hadolint-report.sarif
+          path: |
+            hadolint-report.sarif
+            hadolint-report.html
 
   # ─────────────────────────────────────────────
   #  TERRAFORM / HCL SECURITY (HashiCorp)
@@ -284,11 +321,12 @@ jobs:
           sarif_file: tfsec-report.sarif
           soft_fail: true
 
-      - name: Run tfsec (readable summary)
+      - name: Run tfsec (HTML report)
         uses: aquasecurity/tfsec-action@v1.0.3
         with:
           soft_fail: true
-          format: lovely
+          format: html
+          additional_args: --out tfsec-report.html
 
       - name: Upload tfsec SARIF to Security tab
         uses: github/codeql-action/upload-sarif@v3
@@ -296,12 +334,14 @@ jobs:
           sarif_file: tfsec-report.sarif
           category: tfsec
 
-      - name: Upload tfsec artifact
+      - name: Upload tfsec reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: tfsec-report
-          path: tfsec-report.sarif
+          path: |
+            tfsec-report.sarif
+            tfsec-report.html
 
       - name: Setup TFLint
         uses: terraform-linters/setup-tflint@v4
@@ -404,6 +444,16 @@ jobs:
           severity: CRITICAL,HIGH
           exit-code: 0
 
+      - name: Run Trivy (HTML)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ghcr.io/${{ github.repository_owner }}/secureshop-${{ matrix.service }}:latest
+          format: template
+          template: "@/contrib/html.tpl"
+          output: trivy-${{ matrix.service }}.html
+          severity: CRITICAL,HIGH
+          exit-code: 0
+
       - name: Upload SARIF to Security tab
         uses: github/codeql-action/upload-sarif@v3
         with:
@@ -417,6 +467,7 @@ jobs:
           path: |
             trivy-${{ matrix.service }}.sarif
             trivy-${{ matrix.service }}.txt
+            trivy-${{ matrix.service }}.html
 
   # ─────────────────────────────────────────────
   #  SBOM
